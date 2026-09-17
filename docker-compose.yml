@@ -1,21 +1,12 @@
-# version: '3.8'  # Recommended version
-
 services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+
   frontend:
     build: ./frontend
     ports:
       - "3000:80"
     depends_on:
       - backend
-
-  backend:
-    build: ./backend
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./backend/uploads:/app/uploads
-    environment:
-      - FLASK_ENV=development
-
-volumes:
-  uploads:  # Only needed if using named volumes
