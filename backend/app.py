@@ -1,57 +1,83 @@
-from flask import Flask, request, jsonify
-import pandas as pd
-import joblib
-import os
-import matplotlib.pyplot as plt
-import io
+from __future__ import annotations
+
 import base64
+import io
+import os
+import tempfile
+
+import joblib
+import matplotlib.pyplot as plt
+import pandas as pd
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB
 
-# Load model and scaler
-model = joblib.load('model.pkl')
-scaler = joblib.load('scaler.pkl')
+model = joblib.load("model.pkl")
+scaler = joblib.load("scaler.pkl")
 
-@app.route('/predict', methods=['POST'])
+
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
+@app.post("/predict")
 def predict():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    if file and file.filename.endswith('.csv'):
-        filename = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-        file.save(filename)
-        
-        # Process data
-        df = pd.read_csv(filename)
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    uploaded = request.files["file"]
+    if not uploaded.filename:
+        return jsonify({"error": "No selected file"}), 400
+    if not uploaded.filename.lower().endswith(".csv"):
+        return jsonify({"error": "Only CSV files are accepted"}), 400
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+            uploaded.save(tmp)
+            temp_path = tmp.name
+
+        df = pd.read_csv(temp_path)
+        if df.empty:
+            return jsonify({"error": "CSV file is empty"}), 400
+        if not all(pd.api.types.is_numeric_dtype(dtype) for dtype in df.dtypes):
+            return jsonify({"error": "CSV must contain numeric columns only"}), 400
+
         data = scaler.transform(df.values)
-        
-        # Predict
         predictions = model.predict(data)
         predictions = scaler.inverse_transform(predictions)
-        
-        # Generate plot
-        plt.figure(figsize=(10, 6))
-        plt.plot(df.values, label='Actual')
-        plt.plot(predictions, label='Predicted')
-        plt.legend()
-        
-        # Convert plot to base64
-        img_bytes = io.BytesIO()
-        plt.savefig(img_bytes, format='png')
-        img_base64 = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
-        
-        return jsonify({
-            'predictions': predictions.flatten().tolist(),
-            'plot': img_base64
-        })
-    
-    return jsonify({'error': 'Invalid file type'}), 400
 
-if __name__ == '__main__':
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    app.run(host='0.0.0.0', port=5000)
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(df.values, label="Actual")
+        ax.plot(predictions, label="Predicted")
+        ax.legend()
+        ax.set_title("Time-series forecast")
+
+        image_buffer = io.BytesIO()
+        fig.savefig(image_buffer, format="png", bbox_inches="tight")
+        plt.close(fig)
+        image_buffer.seek(0)
+        image_b64 = base64.b64encode(image_buffer.read()).decode("utf-8")
+
+        return jsonify(
+            {
+                "predictions": predictions.flatten().tolist(),
+                "plot": image_b64,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Prediction failed: {exc}"}), 400
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+@app.errorhandler(413)
+def too_large(_error):
+    return jsonify({"error": "Uploaded file exceeds the 5 MB limit"}), 413
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
