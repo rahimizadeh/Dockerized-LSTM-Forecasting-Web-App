@@ -1,145 +1,74 @@
-# Time Series Forecasting Web App
+# Dockerized LSTM Forecasting Web App
 
-![Docker](https://img.shields.io/badge/Docker-2.5GB→300MB-success)
-![React](https://img.shields.io/badge/React-18-blue)
-![Flask](https://img.shields.io/badge/Flask-2.3-green)
+A containerized time-series prediction demo with a Flask backend, React frontend, Nginx reverse proxy, and committed model/scaler artifacts.
 
-A Dockerized web application for time series forecasting using LSTM, featuring:
-- CSV file uploads
-- Interactive prediction plots
-- Optimized Docker images (~300MB backend)
+## Architecture
 
-## 📦 Project Structure
+- **Frontend:** React served by Nginx on port 3000
+- **Backend:** Flask/Gunicorn on port 5000
+- **API routing:** browser requests `/api/predict`; Nginx proxies to `backend:5000/predict`
+- **Model artifacts:** `backend/model.pkl` and `backend/scaler.pkl`
 
-```
-timeseries-app/
-├── backend/               # Flask + LSTM
-│   ├── app.py             # Prediction API
-│   ├── requirements.txt   # Python dependencies
-│   └── model/             # Trained models
-├── frontend/              # React.js
-│   ├── src/               # React components
-│   └── public/            # Static assets
-├── docker-compose.yml     # Full stack definition
-└── README.md
-```
+## Run with Docker Compose
 
-## 🚀 Deployment Options
-
-### Option 1: Using Pre-built Images (Fastest)
 ```bash
-docker pull rahimizadeh/timeseries-backend:latest
-docker pull rahimizadeh/timeseries-frontend:latest
-docker-compose up -d
+git clone https://github.com/rahimizadeh/Dockerized-LSTM-Forecasting-Web-App.git
+cd Dockerized-LSTM-Forecasting-Web-App
+docker compose up --build
 ```
 
-### Option 2: Build from Source
+Open:
+
+```text
+http://localhost:3000
+```
+
+Backend health check:
+
 ```bash
-# 1. Clone repository
-git clone https://github.com/yourrepo/timeseries-app.git
-cd timeseries-app
-
-# 2. Build optimized images
-docker-compose build --no-cache
-
-# 3. Start services
-docker-compose up -d
+curl http://localhost:5000/health
 ```
 
-## 🔍 Access the Application
+## Test the prediction endpoint directly
 
-| Service       | URL                   | Port  |
-|---------------|-----------------------|-------|
-| Frontend      | http://localhost:3000 | 3000  |
-| Backend API   | http://localhost:5000 | 5000  |
+Use a numeric CSV compatible with the scaler/model input shape:
 
-## 🧪 Testing the Application
-
-1. **Prepare a CSV file** (`sample.csv`):
-   ```csv
-   value
-   0.1
-   0.5
-   0.9
-   1.2
-   1.6
-   ```
-
-2. **Test via Web UI**:
-   - Open http://localhost:3000
-   - Upload `sample.csv`
-   - View predictions and plot
-
-3. **Test API directly**:
-   ```bash
-   curl -X POST -F "file=@sample.csv" http://localhost:5000/predict
-   ```
-
-## 🛠 Maintenance Commands
-
-| Command                          | Purpose                          |
-|----------------------------------|----------------------------------|
-| `docker-compose logs -f backend` | View backend logs                |
-| `docker exec -it backend bash`   | Enter backend container          |
-| `docker system prune`            | Clean unused Docker objects      |
-
-## 🐛 Troubleshooting
-
-**Problem**: CSV upload fails
-- Solution: Verify file format matches the expected structure
-
-**Problem**: "Model not found" error
-- Solution: Rebuild with `docker-compose build --no-cache backend`
-
-**Problem**: High CPU/RAM usage
-- Solution: Limit resources in `docker-compose.yml`:
-  ```yaml
-  services:
-    backend:
-      deploy:
-        resources:
-          limits:
-            cpus: '1'
-            memory: 1G
-  ```
-
-## 📊 Performance Metrics
-
-| Component       | Original Size | Optimized Size |
-|-----------------|---------------|----------------|
-| Backend         | 2.5GB         | 300MB          |
-| Frontend        | 42MB          | 42MB           |
-
----
-
-## 🔄 CI/CD Pipeline Example
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy
-on: push
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - run: docker-compose -f docker-compose.prod.yml build
-      - run: docker push rahimizadeh/timeseries-backend
-      - run: docker push rahimizadeh/timeseries-frontend
+```bash
+curl -X POST http://localhost:5000/predict \
+  -F "file=@timeseries_data.csv"
 ```
 
----
+The response contains a prediction array plus a base64-encoded PNG plot.
 
-## 📜 License
+## Safety/robustness behavior
 
-MIT © 2023
+- only `.csv` uploads are accepted
+- uploads are limited to 5 MB
+- CSV columns must be numeric
+- temporary upload files are deleted after each request
+- matplotlib figures are explicitly closed after rendering
+- backend error details are surfaced by the frontend
 
----
+## Local backend syntax check
 
-This README provides:
-✅ Clear deployment instructions  
-✅ Maintenance commands  
-✅ Troubleshooting guide  
-✅ Performance benchmarks  
-✅ CI/CD integration example  
+```bash
+python -m py_compile backend/app.py backend/train_lstm.py
+```
+
+## Frontend build check
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+## Docker checks
+
+```bash
+docker compose config
+docker compose build
+docker compose up
+```
+
+Then verify both `http://localhost:3000` and `http://localhost:5000/health`.
